@@ -19,10 +19,10 @@
 #define da_len(name)        _qy_ ## name ## _p
  
 typedef enum {
-    tk_EOI, tk_Mul, tk_Div, tk_Mod, tk_Add, tk_Sub, tk_Negate, tk_Not, tk_Lss, tk_Leq,
-    tk_Gtr, tk_Geq, tk_Eq, tk_Neq, tk_Assign, tk_And, tk_Or, tk_If, tk_Else, tk_While,
-    tk_Print, tk_Putc, tk_Lparen, tk_Rparen, tk_Lbrace, tk_Rbrace, tk_Semi, tk_Comma,
-    tk_Ident, tk_Integer, tk_String
+    tk_EOI, tk_Assign1, tk_GreaterEq, tk_LessEq, tk_Compare, tk_Colon, tk_Assign2, tk_Add, tk_Subtract,
+    tk_Multiply, tk_Divide, tk_Modulus, tk_Dot, tk_Less, tk_Greater, tk_Lparent, tk_Rparent, tk_Lbrace, tk_Rbrace, 
+    tk_Semicolon, tk_Comma, tk_Lbracket, tk_Rbracket, tk_Begin, tk_End, tk_Loop, tk_While. tk_Void, tk_Exit,
+    tk_Getter, tk_Outter, tk_Main, tk_If, tk_Then, tk_Assign, tk_Data, tk_Proc, tk_Ident, tk_Integer, tk_String
 } TokenType;
  
 typedef struct {
@@ -120,11 +120,20 @@ static TokenType get_ident_type(const char *ident) {
         const char *s;
         TokenType sym;
     } kwds[] = {
-        {"else",  tk_Else},
-        {"if",    tk_If},
-        {"print", tk_Print},
-        {"putc",  tk_Putc},
-        {"while", tk_While},
+        {"begin",  tk_Begin},
+        {"end",    tk_End},
+        {"loop", tk_Loop},
+        {"while",  tk_While},
+        {"void", tk_Void},
+        {"exit",  tk_Exit},
+        {"getter",    tk_Getter},
+        {"outter", tk_Outter},
+        {"main",  tk_Main},
+        {"if", tk_If},
+        {"then",    tk_Then},
+        {"assign", tk_Assign},
+        {"data",  tk_Data},
+        {"proc", tk_Proc},
     }, *kwp;
  
     return (kwp = bsearch(&ident, kwds, NELEMS(kwds), sizeof(kwds[0]), kwd_cmp)) == NULL ? tk_Ident : kwp->sym;
@@ -173,22 +182,23 @@ tok_s gettok(void) {            /* return the token type */
     switch (the_ch) {
         case '{':  next_ch(); return (tok_s){tk_Lbrace, err_line, err_col, {0}};
         case '}':  next_ch(); return (tok_s){tk_Rbrace, err_line, err_col, {0}};
-        case '(':  next_ch(); return (tok_s){tk_Lparen, err_line, err_col, {0}};
-        case ')':  next_ch(); return (tok_s){tk_Rparen, err_line, err_col, {0}};
+        case '(':  next_ch(); return (tok_s){tk_Lparent, err_line, err_col, {0}};
+        case ')':  next_ch(); return (tok_s){tk_Rparent, err_line, err_col, {0}};
+        case '[':  next_ch(); return (tok_s){tk_Lbracket, err_line, err_col, {0}};
+        case ']':  next_ch(); return (tok_s){tk_Rbracket, err_line, err_col, {0}};
         case '+':  next_ch(); return (tok_s){tk_Add, err_line, err_col, {0}};
-        case '-':  next_ch(); return (tok_s){tk_Sub, err_line, err_col, {0}};
-        case '*':  next_ch(); return (tok_s){tk_Mul, err_line, err_col, {0}};
-        case '%':  next_ch(); return (tok_s){tk_Mod, err_line, err_col, {0}};
-        case ';':  next_ch(); return (tok_s){tk_Semi, err_line, err_col, {0}};
+        case '-':  next_ch(); return (tok_s){tk_Subtract, err_line, err_col, {0}};
+        case '*':  next_ch(); return (tok_s){tk_Multiply, err_line, err_col, {0}};
+        case '%':  next_ch(); return (tok_s){tk_Modulus, err_line, err_col, {0}};
+        case ';':  next_ch(); return (tok_s){tk_Semicolon, err_line, err_col, {0}};
         case ',':  next_ch(); return (tok_s){tk_Comma,err_line, err_col, {0}};
+        case '.':  next_ch(); return (tok_s){tk_Dot,err_line, err_col, {0}};
         case '/':  next_ch(); return div_or_cmt(err_line, err_col);
         case '\'': next_ch(); return char_lit(the_ch, err_line, err_col);
-        case '<':  next_ch(); return follow('=', tk_Leq, tk_Lss,    err_line, err_col);
-        case '>':  next_ch(); return follow('=', tk_Geq, tk_Gtr,    err_line, err_col);
-        case '=':  next_ch(); return follow('=', tk_Eq,  tk_Assign, err_line, err_col);
-        case '!':  next_ch(); return follow('=', tk_Neq, tk_Not,    err_line, err_col);
-        case '&':  next_ch(); return follow('&', tk_And, tk_EOI,    err_line, err_col);
-        case '|':  next_ch(); return follow('|', tk_Or,  tk_EOI,    err_line, err_col);
+        case ':':  next_ch(); return follow('=', tk_Assign2, tk_Colon, err_line, err_col);
+        case '=':  next_ch(); return follow('>', tk_GreaterEq, tk_Assign1, err_line, err_col);
+        case '=':  next_ch(); return follow('<', tk_LessEq,  tk_Assign1, err_line, err_col);
+        case '=':  next_ch(); return follow('=', tk_Compare, tk_Assign1, err_line, err_col);
         case '"' : return string_lit(the_ch, err_line, err_col);
         default:   return ident_or_int(err_line, err_col);
         case EOF:  return (tok_s){tk_EOI, err_line, err_col, {0}};
@@ -201,13 +211,14 @@ void run(void) {    /* tokenize the given input */
         tok = gettok();
         fprintf(dest_fp, "%5d  %5d %.15s",
             tok.err_ln, tok.err_col,
-            &"End_of_input    Op_multiply     Op_divide       Op_mod          Op_add          "
-             "Op_subtract     Op_negate       Op_not          Op_less         Op_lessequal    "
-             "Op_greater      Op_greaterequal Op_equal        Op_notequal     Op_assign       "
-             "Op_and          Op_or           Keyword_if      Keyword_else    Keyword_while   "
-             "Keyword_print   Keyword_putc    LeftParen       RightParen      LeftBrace       "
-             "RightBrace      Semicolon       Comma           Identifier      Integer         "
-             "String          "
+            &"End_of_input    Op_assign1      Op_greatereq    Op_lesseq       Op_compare      "
+             "Op_assign2      Op_add          Op_subtract     Op_multiply     Op_divide       "
+             "Op_modulus      Delim_colin     Delim_semicol   Delim_dot       Delim_Comma     "
+             "Delim_LParent   Delim_RParent   Delim_RBrace    Delim_LBrace    Delim_RBracket  "
+             "Delim_LBracket  Keyword_begin   Keyword_end     Keyword_loop    Keyword_while   "
+             "Keyword_void    Keyword_exit    Keyword_getter  Keyword_outter  Keyword_main    "
+             "Keyword_if      Keyword_then    Keyword_assign  Keyword_data    Keyword_proc    "
+             "Identifier      Integer         String          "
             [tok.tok * 16]);
         if (tok.tok == tk_Integer)     fprintf(dest_fp, "  %4d",   tok.n);
         else if (tok.tok == tk_Ident)  fprintf(dest_fp, " %s",     tok.text);
